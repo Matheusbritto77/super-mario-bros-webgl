@@ -21,3 +21,16 @@ npm-debug.log*
 .vscode/
 *.swp
 *.swo
+
+# Large files & ROMs/ISOs
+god/
+*.iso
+*.cso
+*.ELF
+extracted/gow/EBOOT.BIN
+extracted/gow/EBOOT.ELF
+extracted/gow/*.asm
+
+# PSP Decrypt Build artifacts & tool
+tools/pspdecrypt/
+
