@@ -50,6 +50,12 @@ while (bootSteps < 30000) {
 
 // Loop Principal de Execução a 60 FPS (VBlank & NMI)
 function gameLoop() {
+  // Se a aba estiver em segundo plano, não processa para não travar nem desincronizar o áudio
+  if (document.hidden) {
+    requestAnimationFrame(gameLoop);
+    return;
+  }
+
   // 1. Polling contínuo de controles (Gamepad USB / Bluetooth)
   pollGamepads();
 
@@ -87,6 +93,31 @@ function gameLoop() {
 }
 
 requestAnimationFrame(gameLoop);
+
+// Gerenciamento de segundo plano: quando mudar de aba ou minimizar, pausa áudio e retoma sem travar
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (audio.ctx && audio.ctx.state === "running") {
+      audio.ctx.suspend();
+    }
+  } else {
+    if (audio.ctx && audio.ctx.state === "suspended" && audioUnlocked) {
+      audio.ctx.resume();
+    }
+  }
+});
+
+window.addEventListener("blur", () => {
+  if (audio.ctx && audio.ctx.state === "running") {
+    audio.ctx.suspend();
+  }
+});
+
+window.addEventListener("focus", () => {
+  if (audio.ctx && audio.ctx.state === "suspended" && audioUnlocked) {
+    audio.ctx.resume();
+  }
+});
 
 // =========================================================================
 // SISTEMA DE CONTROLES: GAMEPAD, TECLADO E MOUSE

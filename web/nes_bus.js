@@ -41,22 +41,26 @@ export class NESBus {
     this.vblank = false;
   }
 
-  // Leitura de 8 bits
+  // Leitura de 8 bits otimizada (Fast Path para PRG-ROM e RAM)
   read(addr) {
     addr = addr & 0xFFFF;
 
-    // 1. RAM interna ($0000 - $07FF, espelhada até $1FFF)
+    // 1. Fast Path: PRG-ROM ($8000 - $FFFF) - Maioria esmagadora dos acessos da CPU
+    if (addr >= 0x8000) {
+      return this.prgRom[addr - 0x8000];
+    }
+
+    // 2. Fast Path: RAM interna ($0000 - $07FF, espelhada até $1FFF)
     if (addr < 0x2000) {
       return this.ram[addr & 0x07FF];
     }
 
-    // 2. Registradores da PPU ($2000 - $2007, espelhados até $3FFF)
+    // 3. Registradores da PPU ($2000 - $2007, espelhados até $3FFF)
     if (addr < 0x4000) {
       const reg = 0x2000 + (addr & 7);
       switch (reg) {
         case 0x2002: { // PPUSTATUS
           const status = this.ppuStatus;
-          // Leitura do status limpa a flag de VBlank e o latch do endereço
           this.ppuStatus &= ~0x80;
           this.ppuAddrLatch = 0;
           this.scrollLatch = 0;
@@ -66,7 +70,6 @@ export class NESBus {
           return this.oam[this.oamAddr];
         case 0x2007: { // PPUDATA
           let val = this.readPPU(this.ppuAddr);
-          // Buffer de leitura (exceto para paletas)
           if ((this.ppuAddr & 0x3FFF) < 0x3F00) {
             const buffered = this.ppuDataBuffer;
             this.ppuDataBuffer = val;
@@ -74,7 +77,6 @@ export class NESBus {
           } else {
             this.ppuDataBuffer = this.readPPU(this.ppuAddr - 0x1000);
           }
-          // Incrementa endereço da PPU (1 ou 32)
           this.ppuAddr = (this.ppuAddr + ((this.ppuCtrl & 0x04) ? 32 : 1)) & 0x3FFF;
           return val;
         }
@@ -83,7 +85,7 @@ export class NESBus {
       }
     }
 
-    // 3. APU e I/O ($4000 - $401F)
+    // 4. APU e I/O ($4000 - $401F)
     if (addr < 0x4020) {
       if (addr === 0x4016) {
         if (this.joypadStrobe === 1) {
@@ -99,16 +101,19 @@ export class NESBus {
       return 0;
     }
 
-    // 4. PRG-ROM ($8000 - $FFFF)
-    if (addr >= 0x8000) {
-      return this.prgRom[addr - 0x8000];
-    }
-
     return 0;
   }
 
-  // Leitura de 16 bits (Little Endian)
+  // Leitura de 16 bits otimizada (evita duas chamadas virtuais de read)
   read16(addr) {
+    addr = addr & 0xFFFF;
+    if (addr >= 0x8000 && addr < 0xFFFF) {
+      const offset = addr - 0x8000;
+      return this.prgRom[offset] | (this.prgRom[offset + 1] << 8);
+    }
+    if (addr < 0x07FE) {
+      return this.ram[addr] | (this.ram[addr + 1] << 8);
+    }
     return this.read(addr) | (this.read(addr + 1) << 8);
   }
 

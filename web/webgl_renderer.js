@@ -121,6 +121,9 @@ export class WebGLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Aloca buffer da textura uma única vez no início
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.width, this.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   }
 
   setShaderMode(mode) {
@@ -137,15 +140,15 @@ export class WebGLRenderer {
 
     gl.useProgram(this.currentProgram);
 
-    // Atualiza textura WebGL com os novos pixels
+    // Atualiza textura WebGL via texSubImage2D (sem re-alocação de memória na GPU)
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(
+    gl.texSubImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.RGBA,
+      0,
+      0,
       this.width,
       this.height,
-      0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
       pixelBuffer

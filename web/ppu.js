@@ -1,6 +1,6 @@
 // web/ppu.js
-// Processador Gráfico PPU 2C02 do NES para Super Mario Bros
-// Suporta: Fine Scrolling pixel-a-pixel, Split de HUD (Status Bar fixa), Mirroring Vertical e Prioridade de Sprites
+// Processador Gráfico PPU 2C02 do NES para Super Mario Bros (Otimizado com Uint32Array)
+// Suporta: Fine Scrolling pixel-a-pixel, Split de HUD, Dual Nametable, Prioridade de Sprites e Acesso Direto à Memória
 
 export const NES_PALETTE = [
   0x666666, 0x002A88, 0x1412A7, 0x3B00A4, 0x5C007E, 0x6E0040, 0x6C0600, 0x561D00,
@@ -13,38 +13,37 @@ export const NES_PALETTE = [
   0xE4E594, 0xCFEF96, 0xBDF4AB, 0xB3F3CC, 0xB5EBF2, 0xB8B8B8, 0x000000, 0x000000,
 ];
 
+// Pré-computação da paleta no formato Little-Endian RGBA 32-bit (0xAABBGGRR) para escrita instantânea
+export const NES_PALETTE_32 = new Uint32Array(64);
+for (let i = 0; i < 64; i++) {
+  const c = NES_PALETTE[i];
+  const r = (c >> 16) & 0xFF;
+  const g = (c >> 8) & 0xFF;
+  const b = c & 0xFF;
+  NES_PALETTE_32[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
+}
+
 export class PPU {
   constructor(bus) {
     this.bus = bus;
     this.width = 256;
     this.height = 240;
     this.frameBuffer = new Uint8Array(this.width * this.height * 4);
+    // View de 32-bit sobre o mesmo buffer de pixels (4x mais rápido que escrever byte-a-byte)
+    this.fb32 = new Uint32Array(this.frameBuffer.buffer);
     // Buffer de opacidade do background para prioridade de sprites
     this.bgOpaque = new Uint8Array(this.width * this.height);
   }
 
   renderFrame() {
     const bus = this.bus;
-    const fb = this.frameBuffer;
-
     const showBg = (bus.ppuMask & 0x08) !== 0;
     const showSprites = (bus.ppuMask & 0x10) !== 0;
 
-    // Cor de fundo universal (Paleta $3F00)
-    const universalBgColor = NES_PALETTE[bus.paletteRam[0] & 0x3F] || 0x000000;
-    const bgR = (universalBgColor >> 16) & 0xFF;
-    const bgG = (universalBgColor >> 8) & 0xFF;
-    const bgB = universalBgColor & 0xFF;
-
-    // Limpa framebuffer e buffer de opacidade
-    for (let i = 0; i < this.width * this.height; i++) {
-      const idx = i * 4;
-      fb[idx] = bgR;
-      fb[idx + 1] = bgG;
-      fb[idx + 2] = bgB;
-      fb[idx + 3] = 255;
-      this.bgOpaque[i] = 0;
-    }
+    // Limpa a tela inteira em 32 bits de uma só vez com a cor universal $3F00
+    const universalBgColor = NES_PALETTE_32[bus.paletteRam[0] & 0x3F];
+    this.fb32.fill(universalBgColor);
+    this.bgOpaque.fill(0);
 
     if (showBg) {
       this.renderBackground();
@@ -54,13 +53,14 @@ export class PPU {
       this.renderSprites();
     }
 
-    // Sinaliza Sprite 0 Hit para a quebra de scanline do HUD
+    // Sinaliza Sprite 0 Hit
     bus.ppuStatus |= 0x40;
   }
 
   renderBackground() {
     const bus = this.bus;
     const bgPatternTable = (bus.ppuCtrl & 0x10) ? 0x1000 : 0x0000;
+    const chrRom = bus.chrRom;
 
     // Renderiza cada linha de tiles (30 linhas de altura)
     for (let tileY = 0; tileY < 30; tileY++) {
@@ -73,7 +73,7 @@ export class PPU {
       const fineX = effScrollX % 8;
       const tileOffset = Math.floor(effScrollX / 8);
 
-      // Desenha 33 colunas para cobrir a transição de scroll suave
+      // Desenha as 33 colunas necessárias para cobrir o scroll contínuo
       for (let col = 0; col <= 32; col++) {
         const worldTileX = (effBaseNT * 32) + tileOffset + col;
         const ntIndex = Math.floor(worldTileX / 32) % 2; // 0 ($2000) ou 1 ($2400)
@@ -91,22 +91,24 @@ export class PPU {
         const screenX = (col * 8) - fineX;
         const screenY = tileY * 8;
 
-        this.drawBGTile(tileId, bgPatternTable, paletteIdx * 4, screenX, screenY);
+        this.drawBGTileFast(tileId, bgPatternTable, paletteIdx * 4, screenX, screenY, chrRom);
       }
     }
   }
 
-  drawBGTile(tileId, patternTableBase, paletteBase, screenX, screenY) {
+  drawBGTileFast(tileId, patternTableBase, paletteBase, screenX, screenY, chrRom) {
     const bus = this.bus;
-    const fb = this.frameBuffer;
+    const fb32 = this.fb32;
+    const bgOpaque = this.bgOpaque;
     const tileOffset = patternTableBase + (tileId * 16);
 
     for (let py = 0; py < 8; py++) {
       const destY = screenY + py;
       if (destY < 0 || destY >= 240) continue;
 
-      const plane0 = bus.readPPU(tileOffset + py);
-      const plane1 = bus.readPPU(tileOffset + py + 8);
+      const plane0 = chrRom[tileOffset + py];
+      const plane1 = chrRom[tileOffset + py + 8];
+      const rowOffset = destY * 256;
 
       for (let px = 0; px < 8; px++) {
         const destX = screenX + px;
@@ -117,29 +119,27 @@ export class PPU {
         const bit1 = (plane1 >> xBit) & 1;
         const colorIdx = (bit1 << 1) | bit0;
 
-        const pixelIdx = destY * 256 + destX;
+        const pixelIdx = rowOffset + destX;
         if (colorIdx !== 0) {
-          this.bgOpaque[pixelIdx] = 1;
+          bgOpaque[pixelIdx] = 1;
         }
 
         const palColorEntry = (colorIdx === 0)
           ? (bus.paletteRam[0] & 0x3F)
           : (bus.paletteRam[(paletteBase + colorIdx) & 0x1F] & 0x3F);
-        const rgb = NES_PALETTE[palColorEntry] || 0x000000;
 
-        const fbIdx = pixelIdx * 4;
-        fb[fbIdx] = (rgb >> 16) & 0xFF;
-        fb[fbIdx + 1] = (rgb >> 8) & 0xFF;
-        fb[fbIdx + 2] = rgb & 0xFF;
-        fb[fbIdx + 3] = 255;
+        // Escrita direta de pixel 32-bit (altíssima velocidade na CPU)
+        fb32[pixelIdx] = NES_PALETTE_32[palColorEntry];
       }
     }
   }
 
   renderSprites() {
     const bus = this.bus;
-    const fb = this.frameBuffer;
+    const fb32 = this.fb32;
+    const bgOpaque = this.bgOpaque;
     const spritePatternTable = (bus.ppuCtrl & 0x08) ? 0x1000 : 0x0000;
+    const chrRom = bus.chrRom;
 
     // Processa os 64 sprites do Mario em ordem reversa
     for (let i = 63; i >= 0; i--) {
@@ -164,8 +164,9 @@ export class PPU {
         if (destY < 0 || destY >= 240) continue;
 
         const yLine = flipV ? (7 - py) : py;
-        const plane0 = bus.readPPU(tileOffset + yLine);
-        const plane1 = bus.readPPU(tileOffset + yLine + 8);
+        const plane0 = chrRom[tileOffset + yLine];
+        const plane1 = chrRom[tileOffset + yLine + 8];
+        const rowOffset = destY * 256;
 
         for (let px = 0; px < 8; px++) {
           const destX = x + px;
@@ -179,21 +180,15 @@ export class PPU {
           // Cor 0 é transparente para sprites
           if (colorIdx === 0) continue;
 
-          const pixelIdx = destY * 256 + destX;
+          const pixelIdx = rowOffset + destX;
 
-          // Prioridade: se o sprite deve ficar atrás do background e o pixel do background for sólido, não desenha
-          if (priorityBehind && this.bgOpaque[pixelIdx] === 1) {
+          // Prioridade de plano: se estiver atrás do background e o bloco for sólido, não desenha
+          if (priorityBehind && bgOpaque[pixelIdx] === 1) {
             continue;
           }
 
           const palColorEntry = bus.paletteRam[(paletteBase + colorIdx) & 0x1F] & 0x3F;
-          const rgb = NES_PALETTE[palColorEntry] || 0x000000;
-
-          const fbIdx = pixelIdx * 4;
-          fb[fbIdx] = (rgb >> 16) & 0xFF;
-          fb[fbIdx + 1] = (rgb >> 8) & 0xFF;
-          fb[fbIdx + 2] = rgb & 0xFF;
-          fb[fbIdx + 3] = 255;
+          fb32[pixelIdx] = NES_PALETTE_32[palColorEntry];
         }
       }
     }
