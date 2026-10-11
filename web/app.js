@@ -120,106 +120,192 @@ window.addEventListener("focus", () => {
 });
 
 // =========================================================================
-// SISTEMA DE CONTROLES: GAMEPAD, TECLADO E MOUSE
+// SISTEMA DE CONTROLES UNIFICADO: GAMEPAD (JOYSTICK), TECLADO E MOUSE
 // =========================================================================
 
-// Botões NES: 0:A, 1:B, 2:Select, 3:Start, 4:Up, 5:Down, 6:Left, 7:Right
-const KEY_MAP = {
-  // Pular (A)
-  Space: 0,
-  KeyX: 0,
-  KeyK: 0,
-  ArrowUp: 0,
-  KeyW: 0,
+// Camadas independentes de entrada (0:A, 1:B, 2:Select, 3:Start, 4:Up, 5:Down, 6:Left, 7:Right)
+const keyboardState = new Uint8Array(8);
+const gamepadState  = new Uint8Array(8);
+const mouseState    = new Uint8Array(8);
 
-  // Correr / Fogo (B)
-  KeyZ: 1,
-  KeyJ: 1,
-  ShiftLeft: 1,
-  ShiftRight: 1,
-
-  // Start & Select
-  Enter: 3,
-  KeyC: 2,
-  Tab: 2,
-  Backspace: 2,
-
-  // Direcionais
-  ArrowDown: 5,
-  KeyS: 5,
-  ArrowLeft: 6,
-  KeyA: 6,
-  ArrowRight: 7,
-  KeyD: 7,
-};
-
-// Teclado
-window.addEventListener("keydown", (e) => {
-  unlockAudio();
-
-  // Atalho de Tela Cheia (F)
-  if (e.code === "KeyF") {
-    toggleFullscreen();
-    return;
+// Sincroniza o estado combinado com o barramento do jogo (OR lógico entre todas as fontes)
+function syncJoypad() {
+  for (let i = 0; i < 8; i++) {
+    const isPressed = Boolean(keyboardState[i] | gamepadState[i] | mouseState[i]);
+    bus.setButton(i, isPressed);
   }
-
-  // Atalho de Mudo (M)
-  if (e.code === "KeyM") {
-    audio.toggleMute();
-    return;
-  }
-
-  if (e.code in KEY_MAP) {
-    e.preventDefault();
-    bus.setButton(KEY_MAP[e.code], true);
-  }
-});
-
-window.addEventListener("keyup", (e) => {
-  if (e.code in KEY_MAP) {
-    e.preventDefault();
-    bus.setButton(KEY_MAP[e.code], false);
-  }
-});
-
-// Gamepad USB / Bluetooth
-function pollGamepads() {
-  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-  if (!gamepads || !gamepads[0]) return;
-
-  const gp = gamepads[0];
-  if (gp.buttons.some((b) => b.pressed)) {
-    unlockAudio();
-  }
-
-  // Padrão Standard Gamepad:
-  // 0: A/Cruz (Pular), 1: B/Círculo (Pular), 2: X/Quadrado (Correr), 3: Y/Triângulo (Correr)
-  // 8: Select/Back, 9: Start/Options
-  // 12: D-Up, 13: D-Down, 14: D-Left, 15: D-Right
-  const btnA = gp.buttons[0]?.pressed || gp.buttons[1]?.pressed;
-  const btnB = gp.buttons[2]?.pressed || gp.buttons[3]?.pressed;
-  const btnSelect = gp.buttons[8]?.pressed;
-  const btnStart = gp.buttons[9]?.pressed;
-  const dpadUp = gp.buttons[12]?.pressed || gp.axes[1] < -0.4;
-  const dpadDown = gp.buttons[13]?.pressed || gp.axes[1] > 0.4;
-  const dpadLeft = gp.buttons[14]?.pressed || gp.axes[0] < -0.4;
-  const dpadRight = gp.buttons[15]?.pressed || gp.axes[0] > 0.4;
-
-  bus.setButton(0, btnA);
-  bus.setButton(1, btnB);
-  bus.setButton(2, btnSelect);
-  bus.setButton(3, btnStart);
-  bus.setButton(4, dpadUp);
-  bus.setButton(5, dpadDown);
-  bus.setButton(6, dpadLeft);
-  bus.setButton(7, dpadRight);
 }
 
-// Suporte a Mouse
-// Clique Esquerdo = Pular (A)
-// Clique Direito = Correr / Fogo (B)
-// Pressionar na metade direita = Andar para Direita
-// Pressionar na metade esquerda = Andar para Esquerda
+// -------------------------------------------------------------------------
+// 1. TECLADO
+// -------------------------------------------------------------------------
+function handleKey(e, isDown) {
+  unlockAudio();
+
+  // Atalhos do sistema
+  if (isDown) {
+    if (e.code === "KeyF") {
+      toggleFullscreen();
+      return;
+    }
+    if (e.code === "KeyM") {
+      audio.toggleMute();
+      return;
+    }
+  }
+
+  let matched = false;
+  const code = e.code || "";
+  const key = (e.key || "").toLowerCase();
+
+  // START (3) - Enter, NumpadEnter, P, Escape
+  if (code === "Enter" || code === "NumpadEnter" || key === "enter" || code === "Escape" || key === "escape" || code === "KeyP" || key === "p") {
+    keyboardState[3] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // SELECT (2) - C, Tab, Backspace, ShiftRight
+  if (code === "KeyC" || key === "c" || code === "Tab" || key === "tab" || code === "Backspace" || key === "backspace" || code === "ShiftRight") {
+    keyboardState[2] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // PULAR / A (0) - Barra de Espaço, X, K
+  if (code === "Space" || key === " " || code === "KeyX" || key === "x" || code === "KeyK" || key === "k") {
+    keyboardState[0] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // CORRER / FOGO / B (1) - Z, J, Shift, Control
+  if (code === "KeyZ" || key === "z" || code === "KeyJ" || key === "j" || code === "ShiftLeft" || key === "shift" || code === "ControlLeft" || code === "ControlRight") {
+    keyboardState[1] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // CIMA (4) e PULAR (0) com W / Seta para Cima
+  if (code === "ArrowUp" || key === "arrowup" || code === "KeyW" || key === "w") {
+    keyboardState[4] = isDown ? 1 : 0;
+    keyboardState[0] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // BAIXO (5) - Seta para Baixo, S
+  if (code === "ArrowDown" || key === "arrowdown" || code === "KeyS" || key === "s") {
+    keyboardState[5] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // ESQUERDA (6) - Seta para Esquerda, A
+  if (code === "ArrowLeft" || key === "arrowleft" || code === "KeyA" || key === "a") {
+    keyboardState[6] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  // DIREITA (7) - Seta para Direita, D
+  if (code === "ArrowRight" || key === "arrowright" || code === "KeyD" || key === "d") {
+    keyboardState[7] = isDown ? 1 : 0;
+    matched = true;
+  }
+
+  if (matched) {
+    e.preventDefault();
+    syncJoypad();
+  }
+}
+
+window.addEventListener("keydown", (e) => handleKey(e, true), { capture: true });
+window.addEventListener("keyup", (e) => handleKey(e, false), { capture: true });
+
+// -------------------------------------------------------------------------
+// 2. GAMEPAD / JOYSTICK (USB & BLUETOOTH - SUPORTE UNIVERSAL)
+// -------------------------------------------------------------------------
+function pollGamepads() {
+  const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+  if (!gamepads || gamepads.length === 0) return;
+
+  const nextGpState = new Uint8Array(8);
+
+  for (let i = 0; i < gamepads.length; i++) {
+    const gp = gamepads[i];
+    if (!gp || !gp.connected) continue;
+
+    // Se qualquer botão estiver pressionado, desbloqueia áudio
+    if (gp.buttons && gp.buttons.some((b) => b && (b.pressed || b.value > 0.5))) {
+      unlockAudio();
+    }
+
+    const isBtn = (idx) => {
+      if (!gp.buttons || !gp.buttons[idx]) return false;
+      return gp.buttons[idx].pressed || gp.buttons[idx].value > 0.5;
+    };
+
+    const numBtns = gp.buttons ? gp.buttons.length : 0;
+    const isStandardPad = numBtns >= 10;
+
+    // 0: A (Pular) - A/Cruz (0) ou B/Círculo (1)
+    const btnA = isBtn(0) || isBtn(1);
+
+    // 1: B (Correr/Fogo) - X/Quadrado (2), Y/Triângulo (3), L1(4), R1(5), L2(6), R2(7)
+    const btnB = isBtn(2) || isBtn(3) || isBtn(4) || isBtn(5) || (isStandardPad && (isBtn(6) || isBtn(7)));
+
+    // 2: Select - Botão 8 (Select/Back/Share) ou 6 (controles retro) ou 10
+    const btnSelect = isBtn(8) || (!isStandardPad && isBtn(6)) || isBtn(10);
+
+    // 3: Start - Botão 9 (Start/Options/Plus) ou 7 (controles retro) ou 11
+    const btnStart = isBtn(9) || (!isStandardPad && isBtn(7)) || isBtn(11);
+
+    // Direcionais D-Pad (botões 12 a 15)
+    let dpadUp = isBtn(12);
+    let dpadDown = isBtn(13);
+    let dpadLeft = isBtn(14);
+    let dpadRight = isBtn(15);
+
+    // Analógico Principal (Left Stick / Eixos 0 e 1)
+    if (gp.axes && gp.axes.length >= 2) {
+      if (gp.axes[0] < -0.35) dpadLeft = true;
+      if (gp.axes[0] > 0.35) dpadRight = true;
+      if (gp.axes[1] < -0.35) dpadUp = true;
+      if (gp.axes[1] > 0.35) dpadDown = true;
+    }
+
+    // Eixos Secundários (D-Pad em alguns joysticks retro / Arcade Sticks)
+    if (gp.axes && gp.axes.length >= 6) {
+      if (gp.axes[4] < -0.35) dpadLeft = true;
+      if (gp.axes[4] > 0.35) dpadRight = true;
+      if (gp.axes[5] < -0.35) dpadUp = true;
+      if (gp.axes[5] > 0.35) dpadDown = true;
+    }
+
+    if (btnA) nextGpState[0] = 1;
+    if (btnB) nextGpState[1] = 1;
+    if (btnSelect) nextGpState[2] = 1;
+    if (btnStart) nextGpState[3] = 1;
+    if (dpadUp) nextGpState[4] = 1;
+    if (dpadDown) nextGpState[5] = 1;
+    if (dpadLeft) nextGpState[6] = 1;
+    if (dpadRight) nextGpState[7] = 1;
+  }
+
+  // Copia o estado e atualiza o barramento
+  for (let b = 0; b < 8; b++) {
+    gamepadState[b] = nextGpState[b];
+  }
+  syncJoypad();
+}
+
+window.addEventListener("gamepadconnected", (e) => {
+  console.log("🎮 Gamepad conectado:", e.gamepad.id, "índice:", e.gamepad.index);
+  unlockAudio();
+});
+
+window.addEventListener("gamepaddisconnected", () => {
+  gamepadState.fill(0);
+  syncJoypad();
+});
+
+// -------------------------------------------------------------------------
+// 3. SUPORTE A MOUSE
+// -------------------------------------------------------------------------
 let isMouseDown = false;
 let mouseXRatio = 0.5;
 
@@ -227,26 +313,26 @@ window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 window.addEventListener("mousedown", (e) => {
   unlockAudio();
+  canvas.focus();
   isMouseDown = true;
   updateMouseDirection(e);
 
   if (e.button === 0) {
-    bus.setButton(0, true); // Pular (A)
+    mouseState[0] = 1; // Pular (A)
   } else if (e.button === 2) {
-    bus.setButton(1, true); // Correr (B)
+    mouseState[1] = 1; // Correr (B)
   }
+  syncJoypad();
 });
 
 window.addEventListener("mouseup", (e) => {
   isMouseDown = false;
-  bus.setButton(6, false); // Solta Esquerda
-  bus.setButton(7, false); // Solta Direita
+  mouseState[6] = 0;
+  mouseState[7] = 0;
 
-  if (e.button === 0) {
-    bus.setButton(0, false);
-  } else if (e.button === 2) {
-    bus.setButton(1, false);
-  }
+  if (e.button === 0) mouseState[0] = 0;
+  if (e.button === 2) mouseState[1] = 0;
+  syncJoypad();
 });
 
 window.addEventListener("mousemove", (e) => {
@@ -258,18 +344,42 @@ window.addEventListener("mousemove", (e) => {
 function updateMouseDirection(e) {
   mouseXRatio = e.clientX / window.innerWidth;
   if (mouseXRatio > 0.58) {
-    bus.setButton(7, true);  // Direita
-    bus.setButton(6, false);
+    mouseState[7] = 1;  // Direita
+    mouseState[6] = 0;
   } else if (mouseXRatio < 0.42) {
-    bus.setButton(6, true);  // Esquerda
-    bus.setButton(7, false);
+    mouseState[6] = 1;  // Esquerda
+    mouseState[7] = 0;
   } else {
-    bus.setButton(6, false);
-    bus.setButton(7, false);
+    mouseState[6] = 0;
+    mouseState[7] = 0;
   }
+  syncJoypad();
 }
 
-// Duplo clique na tela alterna Fullscreen
+// -------------------------------------------------------------------------
+// 4. FOCO, FULLSCREEN E INICIALIZAÇÃO
+// -------------------------------------------------------------------------
+window.addEventListener("blur", () => {
+  keyboardState.fill(0);
+  mouseState.fill(0);
+  syncJoypad();
+  if (audio.ctx && audio.ctx.state === "running") {
+    audio.ctx.suspend();
+  }
+});
+
+window.addEventListener("focus", () => {
+  canvas.focus();
+  if (audio.ctx && audio.ctx.state === "suspended" && audioUnlocked) {
+    audio.ctx.resume();
+  }
+});
+
+canvas.addEventListener("click", () => {
+  unlockAudio();
+  canvas.focus();
+});
+
 canvas.addEventListener("dblclick", () => {
   toggleFullscreen();
 });
@@ -281,6 +391,9 @@ function toggleFullscreen() {
     document.exitFullscreen?.();
   }
 }
+
+// Foco imediato no Canvas ao carregar a página
+canvas.focus();
 
 // Fade out da dica de controles após 4 segundos
 const hint = document.getElementById("hintOverlay");

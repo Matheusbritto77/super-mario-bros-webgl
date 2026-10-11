@@ -27,10 +27,12 @@ export class NESBus {
       0x22, 0x16, 0x27, 0x18,  0x22, 0x1A, 0x30, 0x27,  0x22, 0x16, 0x30, 0x27,  0x22, 0x0F, 0x36, 0x17
     ]);
 
-    // Estado do Controle 1 (Joypad)
+    // Estado dos Controles 1 e 2 (Joypad)
     // Bits: [A, B, Select, Start, Up, Down, Left, Right]
     this.joypad1State = 0;
     this.joypad1Shift = 0;
+    this.joypad2State = 0;
+    this.joypad2Shift = 0;
     this.joypadStrobe = 0;
 
     // APU registers
@@ -93,6 +95,14 @@ export class NESBus {
         }
         const bit = (this.joypad1Shift & 0x01) ? 1 : 0;
         this.joypad1Shift = (this.joypad1Shift >> 1) | 0x80;
+        return bit;
+      }
+      if (addr === 0x4017) {
+        if (this.joypadStrobe === 1) {
+          return (this.joypad2State & 0x01) ? 1 : 0;
+        }
+        const bit = (this.joypad2Shift & 0x01) ? 1 : 0;
+        this.joypad2Shift = (this.joypad2Shift >> 1) | 0x80;
         return bit;
       }
       if (addr === 0x4015) {
@@ -183,11 +193,13 @@ export class NESBus {
       }
 
       if (addr === 0x4016) {
-        // Strobe do Joypad
-        if (this.joypadStrobe === 1 && (val & 1) === 0) {
-          this.joypad1Shift = this.joypad1State;
-        }
+        // Strobe do Joypad: 1 recarrega continuamente o registrador de deslocamento
+        const prevStrobe = this.joypadStrobe;
         this.joypadStrobe = val & 1;
+        if (this.joypadStrobe === 1 || (prevStrobe === 1 && this.joypadStrobe === 0)) {
+          this.joypad1Shift = this.joypad1State;
+          this.joypad2Shift = this.joypad2State;
+        }
         return;
       }
 
@@ -243,6 +255,22 @@ export class NESBus {
       this.joypad1State |= bit;
     } else {
       this.joypad1State &= ~bit;
+    }
+    if (this.joypadStrobe === 1) {
+      this.joypad1Shift = this.joypad1State;
+    }
+  }
+
+  // Atualiza estado dos botões do Joypad 2
+  setButton2(button, pressed) {
+    const bit = 1 << button;
+    if (pressed) {
+      this.joypad2State |= bit;
+    } else {
+      this.joypad2State &= ~bit;
+    }
+    if (this.joypadStrobe === 1) {
+      this.joypad2Shift = this.joypad2State;
     }
   }
 }
