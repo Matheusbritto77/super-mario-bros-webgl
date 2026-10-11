@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <title>Super Mario Bros</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #gameCanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      cursor: crosshair;
+    }
+
+    /* Overlay sutil de boas-vindas / dica rápida que desaparece em 4 segundos */
+    #hintOverlay {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 20, 35, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      padding: 8px 18px;
+      border-radius: 20px;
+      pointer-events: none;
+      transition: opacity 1s ease;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    #hintOverlay.fade {
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <canvas id="gameCanvas" width="256" height="240"></canvas>
+
+  <div id="hintOverlay">
+    🎮 Controle USB/Bluetooth • ⌨ Teclado (Setas/WASD + Espaço/Z) • 🖱 Mouse (Clique Esq: Pular | Dir: Correr) • <b>F</b>: Tela Cheia
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

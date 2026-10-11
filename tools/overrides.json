@@ -1,0 +1,18 @@
+{
+  "_comment": "Mapeamento de rotinas do 6502 que podem ser substituídas por funções nativas JavaScript/Wasm",
+  "0x8000": {
+    "name": "RESET_Start",
+    "description": "Rotina de Inicialização do NES e SMB1",
+    "action": "native"
+  },
+  "0x8082": {
+    "name": "NMI_Handler",
+    "description": "Vetor de VBlank a 60 FPS (Física, Sprites e Controles)",
+    "action": "native"
+  },
+  "0x80B3": {
+    "name": "Sprite_DMA",
+    "description": "Escrita em $4014 para transferir OAM de sprites para a PPU",
+    "action": "native"
+  }
+}

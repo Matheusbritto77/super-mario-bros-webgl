@@ -1,0 +1,11 @@
+==================================================
+Informações da ROM: Super Mario Bros. (World).nes
+==================================================
+- PRG-ROM (Código): 32 KB (2 bancos de 16KB)
+- CHR-ROM (Gráficos): 8 KB (1 bancos de 8KB)
+- Mapper: 0 (NROM-256)
+- Espelhamento (Mirroring): Vertical
+- Vetor NMI (Frame/VBlank loop): 0x8082
+- Vetor RESET (Inicialização): 0x8000
+- Vetor IRQ: 0xFFF0
+==================================================
