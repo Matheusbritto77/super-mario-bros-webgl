@@ -22,15 +22,8 @@ npm-debug.log*
 *.swp
 *.swo
 
-# Large files & ROMs/ISOs
-god/
-*.iso
-*.cso
-*.ELF
-extracted/gow/EBOOT.BIN
-extracted/gow/EBOOT.ELF
-extracted/gow/*.asm
+# Large ROM files (NES)
+*.nes
+*.fds
 
-# PSP Decrypt Build artifacts & tool
-tools/pspdecrypt/
 
